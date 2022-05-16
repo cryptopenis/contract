@@ -28,7 +28,7 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 1000,
+        runs: 1,
       },
     },
   },
@@ -50,7 +50,7 @@ const config: HardhatUserConfig = {
   },
   gasReporter: {
     enabled: process.env.REPORT_GAS !== undefined,
-    currency: "BRL",
+    currency: "USD",
     token: process.env.TOKEN,
     coinmarketcap: process.env.COINMARKETCAP_API_KEY,
   },
