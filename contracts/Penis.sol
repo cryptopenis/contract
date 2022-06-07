@@ -10,6 +10,15 @@ import "@openzeppelin/contracts/security/PullPayment.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
+struct PenisParameters {
+    uint8 ball;
+    uint8 body;
+    uint8 eye;
+    uint8 accessory;
+    uint8 wing;
+    uint8 palette;
+}
+
 contract PenisCollection {
     bytes private constant SVG_HEADER =
         '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 885 885" style="width: 885px;height:885px">'
@@ -99,7 +108,6 @@ contract PenisCollection {
     bytes private constant SVG_FOOTER = "</svg>";
 
     bytes[][] private palettes = [
-        // ["000000a", "fefefe", "cdcdcd"],
         [bytes("660099"), "d597fc", "c26ff3"],
         [bytes("6b004d"), "ff9ab8", "f87891"],
         [bytes("840033"), "f55964", "db4369"],
@@ -732,28 +740,28 @@ contract PenisCollection {
         "</g>"
     ];
 
-    function paletteLength() public view returns (uint256) {
-        return palettes.length;
+    function paletteLength() public view returns (uint8) {
+        return uint8(palettes.length);
     }
 
-    function wingsLength() public view returns (uint256) {
-        return wings.length;
+    function wingsLength() public view returns (uint8) {
+        return uint8(wings.length);
     }
 
-    function ballsLength() public view returns (uint256) {
-        return balls.length;
+    function ballsLength() public view returns (uint8) {
+        return uint8(balls.length);
     }
 
-    function bodiesLength() public view returns (uint256) {
-        return bodies.length;
+    function bodiesLength() public view returns (uint8) {
+        return uint8(bodies.length);
     }
 
-    function eyesLength() public view returns (uint256) {
-        return eyes.length;
+    function eyesLength() public view returns (uint8) {
+        return uint8(eyes.length);
     }
 
-    function accessoriesLength() public view returns (uint256) {
-        return accessories.length;
+    function accessoriesLength() public view returns (uint8) {
+        return uint8(accessories.length);
     }
 
     bytes private constant STYLE_PART_A =
@@ -794,39 +802,35 @@ contract PenisCollection {
         return style;
     }
 
-    function _getPenisSvg(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) public view returns (bytes memory) {
+    function _getPenisSvg(PenisParameters calldata pp)
+        public
+        view
+        returns (bytes memory)
+    {
         bytes memory svg = abi.encodePacked(
             SVG_HEADER,
-            _getPenisStyle(paletteId),
+            _getPenisStyle(pp.palette),
             BACKGROUND
         );
-        paletteId;
 
         svg = abi.encodePacked(
             svg,
             bytes('<g class="wings-back">'),
-            wings[wingId][0],
+            wings[pp.wing][0],
             bytes('</g><g class="balls">'),
-            balls[ballId],
+            balls[pp.ball],
             bytes('</g><g class="body">'),
-            bodies[bodyId]
+            bodies[pp.body]
         );
 
         svg = abi.encodePacked(
             svg,
             bytes('</g><g class="eyes">'),
-            eyes[eyeId],
+            eyes[pp.eye],
             bytes('</g><g class="accessories">'),
-            accessories[accessoryId],
+            accessories[pp.accessory],
             bytes('</g><g class="wings-front">'),
-            wings[wingId][1],
+            wings[pp.wing][1],
             bytes("</g>"),
             SVG_FOOTER
         );
@@ -837,11 +841,16 @@ contract PenisCollection {
 
 contract Penis is ERC721Royalty, PullPayment, Ownable {
     PenisCollection private penisCollection = new PenisCollection();
-    uint8[6][] private tokens;
-    uint256 private nonOwnerTokensMinted;
-    AggregatorV3Interface internal priceFeed;
+    uint24[25000] private tokens;
+    mapping(uint24 => uint16) private dnaToId;
+    uint16 private nonOwnerTokensMinted = 0;
+    uint16 private totalTokensMinted = 0;
 
+    AggregatorV3Interface private priceFeed;
+
+    uint16 lastLotIncrease = 3000;
     uint16 lotSize = 3000;
+
     uint256 price = 10000000000; // in dollars, with 10 decimals
     uint256 priceGrowthRateNumerator = 161803398;
     uint256 priceGrowthRateDenominator = 100000000;
@@ -854,213 +863,193 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
         );
     }
 
-    function _mintPrice() public returns (uint256) {
+    function mint(PenisParameters calldata pp)
+        public
+        payable
+        mintPrice
+        uniqueAndPossible(pp)
+        returns (uint256)
+    {
+        uint256 tokenId = mintTokenTo(msg.sender, pp);
+        return tokenId;
+    }
+
+    function mintTo(address toAddress, PenisParameters calldata pp)
+        public
+        payable
+        mintPrice
+        returns (uint256)
+    {
+        return mintTokenTo(toAddress, pp);
+    }
+
+    function mintBatchTo(address toAddress, PenisParameters[] calldata ppArray)
+        public
+        payable
+        onlyOwner
+        returns (uint256[] memory tokensMinted)
+    {
+        for (uint256 index = 0; index < ppArray.length; index++) {
+            tokensMinted[index] = mintTokenTo(toAddress, ppArray[index]);
+        }
+    }
+
+    function mintOwnerToken(PenisParameters calldata pp)
+        public
+        payable
+        onlyOwner
+        returns (uint256)
+    {
+        uint256 tokenId = mintTokenTo(msg.sender, pp);
+        return tokenId;
+    }
+
+    function mintTokenTo(address toAddress, PenisParameters calldata pp)
+        private
+        mintLimit(toAddress)
+        uniqueAndPossible(pp)
+        returns (uint256)
+    {
+        uint16 tokenId = totalTokensMinted + 1;
+        if (toAddress != owner()) {
+            nonOwnerTokensMinted += 1;
+        }
+        totalTokensMinted += 1;
+        uint24 dna = _parametersToDna(pp);
+        tokens[tokenId] = dna;
+        dnaToId[dna] = tokenId;
+        _safeMint(toAddress, tokenId);
+        return uint256(tokenId);
+    }
+
+    modifier mintLimit(address toAddress) {
+        if (toAddress == owner()) {
+            require(totalTokensMinted < 2500, "Token limit reached");
+        } else {
+            require(totalTokensMinted < 22500, "Token limit reached");
+        }
+        _;
+    }
+
+    modifier ownerLimit() {
+        require(
+            nonOwnerTokensMinted - totalTokensMinted < 2500,
+            "Token limit reached"
+        );
+        _;
+    }
+
+    modifier mintPrice() {
         if (nonOwnerTokensMinted >= lotSize) {
-            lotSize = lotSize + ((lotSize * 9) / 10);
+            lastLotIncrease = (lastLotIncrease * 9) / 10;
+            lotSize = lotSize + lastLotIncrease;
             price =
-                (price * priceGrowthRateNumerator) /
-                priceGrowthRateDenominator;
+                price *
+                (priceGrowthRateNumerator / priceGrowthRateDenominator);
         }
         (, int256 dollarRate, , , ) = priceFeed.latestRoundData(); // 8 decimals
         // 1 eth = 1 000 000 000 000 000 000 wei
-        return price * uint256(dollarRate);
-    }
-
-    function mint(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) public payable returns (uint256) {
-        uint256 mintPrice = _mintPrice();
+        uint256 value = price * uint256(dollarRate);
         require(
-            msg.value >= mintPrice,
+            msg.value >= value,
             string(
                 abi.encodePacked(
                     "Pay at least ",
-                    Strings.toString(mintPrice),
+                    Strings.toString(value),
                     " MATIC to mint"
                 )
             )
         );
-        require(
-            _possibleChoice(
-                ballId,
-                bodyId,
-                eyeId,
-                accessoryId,
-                wingId,
-                paletteId
-            ),
-            "Asset does not exist"
-        );
-        require(
-            !_minted(ballId, bodyId, eyeId, accessoryId, wingId, paletteId),
-            "This token was already minted"
-        );
-        uint256 tokenId = tokens.length;
-        _safeMint(msg.sender, tokenId);
-        tokens.push([ballId, bodyId, eyeId, accessoryId, wingId, paletteId]);
-        nonOwnerTokensMinted += 1;
-        return uint256(tokenId);
+        _;
     }
 
-    function mintOwnerToken(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) public payable onlyOwner returns (uint256) {
-        require(
-            _canOwnerMint(),
-            "Unable to mint to contract owner. More non-owner penises must be minted first"
-        );
-        require(
-            _possibleChoice(
-                ballId,
-                bodyId,
-                eyeId,
-                accessoryId,
-                wingId,
-                paletteId
-            ),
-            "Asset does not exist"
-        );
-        require(
-            !_minted(ballId, bodyId, eyeId, accessoryId, wingId, paletteId),
-            "This token was already minted"
-        );
-        uint256 tokenId = tokens.length;
-        tokens.push([ballId, bodyId, eyeId, accessoryId, wingId, paletteId]);
-        _safeMint(msg.sender, tokenId);
-        return uint256(tokenId);
+    modifier uniqueAndPossible(PenisParameters calldata pp) {
+        require(!_minted(pp), "This token was already minted");
+        require(_possibleChoice(pp), "Asset does not exist");
+        _;
     }
 
-    function mintBatch(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) public payable returns (uint256) {
-        require(
-            _possibleChoice(
-                ballId,
-                bodyId,
-                eyeId,
-                accessoryId,
-                wingId,
-                paletteId
-            ),
-            "Asset does not exist"
-        );
-        require(
-            !_minted(ballId, bodyId, eyeId, accessoryId, wingId, paletteId),
-            "This token was already minted"
-        );
-        uint256 tokenId = tokens.length;
-        _safeMint(msg.sender, tokenId);
-        tokens.push([ballId, bodyId, eyeId, accessoryId, wingId, paletteId]);
-        nonOwnerTokensMinted += 1;
-        return uint256(tokenId);
-    }
+    function _dnaToParameters(uint24 dna)
+        private
+        view
+        returns (PenisParameters memory pp)
+    {
+        uint8[6] memory sets = [
+            penisCollection.ballsLength(),
+            penisCollection.bodiesLength(),
+            penisCollection.eyesLength(),
+            penisCollection.accessoriesLength(),
+            penisCollection.wingsLength(),
+            penisCollection.paletteLength()
+        ];
+        uint8[6] memory params = [uint8(0), 0, 0, 0, 0, 0];
 
-    function mintTo(
-        address toAddress,
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) public payable returns (uint256) {
-        uint256 mintPrice = _mintPrice();
-        require(
-            msg.value >= mintPrice,
-            string(
-                abi.encodePacked(
-                    "Pay at least ",
-                    Strings.toString(mintPrice),
-                    " MATIC to mint"
-                )
-            )
-        );
-        require(
-            _possibleChoice(
-                ballId,
-                bodyId,
-                eyeId,
-                accessoryId,
-                wingId,
-                paletteId
-            ),
-            "Asset does not exist"
-        );
-        require(
-            !_minted(ballId, bodyId, eyeId, accessoryId, wingId, paletteId),
-            "This token was already minted"
-        );
-        uint256 tokenId = tokens.length;
-        _safeMint(toAddress, tokenId);
-        tokens.push([ballId, bodyId, eyeId, accessoryId, wingId, paletteId]);
-        nonOwnerTokensMinted += 1;
-        return uint256(tokenId);
-    }
-
-    function _canOwnerMint() internal view returns (bool) {
-        if (tokens.length / 9 < nonOwnerTokensMinted) {
-            return true;
-        } else {
-            return false;
+        for (uint256 i = sets.length; i > 0; i--) {
+            uint8 set = sets[i - 1];
+            uint8 elem = uint8(dna % set);
+            params[i - 1] = elem;
+            dna = dna / set;
         }
+
+        pp.ball = params[0];
+        pp.body = params[1];
+        pp.eye = params[2];
+        pp.accessory = params[3];
+        pp.wing = params[4];
+        pp.palette = params[5];
+        return pp;
     }
 
-    function _possibleChoice(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) internal view returns (bool) {
+    function _parametersToDna(PenisParameters calldata pp)
+        private
+        view
+        returns (uint24)
+    {
+        uint24 b0 = 1;
+        uint24 b1 = b0 * penisCollection.paletteLength();
+        uint24 b2 = b1 * penisCollection.wingsLength();
+        uint24 b3 = b2 * penisCollection.accessoriesLength();
+        uint24 b4 = b3 * penisCollection.eyesLength();
+        uint24 b5 = b4 * penisCollection.bodiesLength();
+
+        return
+            b5 *
+            pp.ball +
+            b4 *
+            pp.body +
+            b3 *
+            pp.eye +
+            b2 *
+            pp.accessory +
+            b1 *
+            pp.wing +
+            b0 *
+            pp.palette;
+    }
+
+    function _possibleChoice(PenisParameters calldata pp)
+        internal
+        view
+        returns (bool)
+    {
         if (
-            (ballId >= penisCollection.ballsLength()) ||
-            (bodyId >= penisCollection.bodiesLength()) ||
-            (eyeId >= penisCollection.eyesLength()) ||
-            (accessoryId >= penisCollection.accessoriesLength()) ||
-            (wingId >= penisCollection.wingsLength()) ||
-            paletteId >= penisCollection.paletteLength()
+            (pp.ball >= penisCollection.ballsLength()) ||
+            (pp.body >= penisCollection.bodiesLength()) ||
+            (pp.eye >= penisCollection.eyesLength()) ||
+            (pp.accessory >= penisCollection.accessoriesLength()) ||
+            (pp.wing >= penisCollection.wingsLength()) ||
+            pp.palette >= penisCollection.paletteLength()
         ) {
             return false;
         }
         return true;
     }
 
-    function _minted(
-        uint8 ballId,
-        uint8 bodyId,
-        uint8 eyeId,
-        uint8 accessoryId,
-        uint8 wingId,
-        uint8 paletteId
-    ) internal view returns (bool) {
-        for (uint256 i = 0; i < tokens.length; i++)
-            if (
-                ballId == tokens[i][0] &&
-                bodyId == tokens[i][1] &&
-                eyeId == tokens[i][2] &&
-                accessoryId == tokens[i][3] &&
-                wingId == tokens[i][4] &&
-                paletteId == tokens[i][5]
-            ) {
-                return true;
-            }
-        return false;
+    function _minted(PenisParameters calldata pp) internal view returns (bool) {
+        if (dnaToId[_parametersToDna(pp)] == 0) {
+            return false;
+        }
+        return true;
     }
 
     function tokenURI(uint256 id)
@@ -1089,14 +1078,8 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
         view
         returns (string memory)
     {
-        bytes memory svg = penisCollection._getPenisSvg(
-            tokens[id][0],
-            tokens[id][1],
-            tokens[id][2],
-            tokens[id][3],
-            tokens[id][4],
-            tokens[id][5]
-        );
+        PenisParameters memory pp = _dnaToParameters(tokens[id]);
+        bytes memory svg = penisCollection._getPenisSvg(pp);
         return string(abi.encodePacked("data:image/svg+xml,", svg));
     }
 
