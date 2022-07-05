@@ -389,12 +389,21 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
     uint256 priceGrowthRateNumerator = 161803398;
     uint256 priceGrowthRateDenominator = 100000000;
 
-    constructor() ERC721("CryptoPenis", "CPNS") {
+    mapping(address => bool) private whitelist;
+    bool private whitelistPeriod = true;
+
+    constructor(address[] memory whitelistAddresses)
+        ERC721("CryptoPenis", "CPNS")
+    {
         // 690 / 1000 = 6.9%
         _setDefaultRoyalty(owner(), 690);
         priceFeed = AggregatorV3Interface(
             0xAB594600376Ec9fD91F8e885dADF0CE036862dE0
         );
+        for (uint256 index = 0; index < whitelistAddresses.length; index++) {
+            whitelist[whitelistAddresses[index]] = true;
+            console.log("Address: %s", whitelistAddresses[index]);
+        }
     }
 
     function mint(PenisParameters calldata pp)
@@ -457,10 +466,23 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
     }
 
     modifier mintLimit(address toAddress) {
-        if (toAddress == owner()) {
-            require(totalTokensMinted < 2500, "Token limit reached");
+        console.log("Sender: %s", msg.sender);
+        console.log("Whitelisted?: %s", whitelist[msg.sender]);
+        if (!whitelistPeriod) {
+            if (toAddress == owner()) {
+                require(
+                    totalTokensMinted - nonOwnerTokensMinted < 2500,
+                    "Token limit reached"
+                );
+            } else {
+                require(totalTokensMinted < 22500, "Token limit reached");
+            }
         } else {
-            require(totalTokensMinted < 22500, "Token limit reached");
+            require(totalTokensMinted < 3000, "Whitelist token limit reached");
+            require(
+                whitelist[msg.sender],
+                "Non whitelisted addresses cannot mint"
+            );
         }
         _;
     }
@@ -615,6 +637,10 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
         PenisParameters memory pp = _dnaToParameters(tokens[id]);
         bytes memory svg = penisCollection._getPenisSvg(pp);
         return string(abi.encodePacked("data:image/svg+xml,", svg));
+    }
+
+    function endWhitelistPeriod() public onlyOwner {
+        whitelistPeriod = false;
     }
 
     function withdrawPayments(address payable payee)
