@@ -615,7 +615,7 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
         override
         returns (string memory)
     {
-        string memory svgUri = _encodeSvgUriAtTokenId(id);
+        string memory svgUri = encodeSvgUriAtTokenDna(tokens[id]);
         bytes memory json = abi.encodePacked(
             '{"name":"SymbolNFT #',
             Strings.toString(id),
@@ -629,12 +629,12 @@ contract Penis is ERC721Royalty, PullPayment, Ownable {
         return jsonUri;
     }
 
-    function _encodeSvgUriAtTokenId(uint256 id)
-        private
+    function encodeSvgUriAtTokenDna(uint24 dna)
+        public
         view
         returns (string memory)
     {
-        PenisParameters memory pp = _dnaToParameters(tokens[id]);
+        PenisParameters memory pp = _dnaToParameters(dna);
         bytes memory svg = penisCollection._getPenisSvg(pp);
         return string(abi.encodePacked("data:image/svg+xml,", svg));
     }
